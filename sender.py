@@ -1,5 +1,5 @@
 import pyaudio
-from protocol import text_encoder, FS, TS
+from protocol import text_encoder, FS
 import numpy as np
 
 
