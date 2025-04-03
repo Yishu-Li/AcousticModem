@@ -1,9 +1,10 @@
 import pyaudio
 import numpy as np
 from protocol import char_decoder, FS, BASE_FREQUENCY, TS, T_SILENCE
-from scipy.signal import hilbert, medfilt
+from scipy.signal import hilbert, medfilt, welch
 from utils import bandpass_filter, plot_psd
 import time
+import matplotlib.pyplot as plt
 
 
 class RealTimeListener:
@@ -25,6 +26,41 @@ class RealTimeListener:
             self.smooth_kernel += 1  # Make sure kernel size is odd
         self.in_segment = False
         self.segment_buffer = np.array([])
+        
+        # Initialize PSD plot if requested
+        self.init_ui()
+        
+    def init_ui(self):
+        """Initialize the UI window"""
+        plt.ion()  # Enable interactive mode
+        self.fig, self.ax = plt.subplots(figsize=(10, 6))
+        self.line, = self.ax.plot([], [])
+        self.ax.set_title('Real-time Power Spectral Density')
+        self.ax.set_xlabel('Frequency (Hz)')
+        self.ax.set_ylabel('Power/Frequency (dB/Hz)')
+        # self.ax.set_ylim(-120, 0)
+        self.ax.set_xlim(0, 10000)  # Nyquist frequency
+        self.ax.grid(True)
+        self.fig.tight_layout()
+        plt.show(block=False)
+    
+    def update_psd_plot(self):
+        """Update the PSD plot with current buffer data"""
+        if len(self.buffer) < self.chunk_size:
+            return
+            
+        # Calculate PSD
+        f, Pxx = welch(self.buffer, FS)
+        fmax = 10000
+        f = f[f<=fmax]
+        Pxx = Pxx[:len(f)]
+        
+        # Update plot
+        # self.line.set_data(f, Pxx)
+        # For debug
+        self.line.set_data(np.arange(10000), np.sin(np.linspace(0, 10000, 10000)))
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
         
     def start_listening(self):
         """Start the audio stream and begin processing audio data"""
@@ -57,6 +93,9 @@ class RealTimeListener:
         
         # Add to buffer
         self.buffer = np.append(self.buffer, audio_data)
+
+        # Update PSD plot
+        self.update_psd_plot()
         
         # Keep buffer at a reasonable size (3 segments worth of data)
         max_buffer_size = int(FS * (TS + T_SILENCE) * 3)
@@ -92,18 +131,16 @@ class RealTimeListener:
             # Add data to segment buffer
             self.segment_buffer = np.append(self.segment_buffer, self.buffer[-self.chunk_size:])
             
-            # Check if we've reached the end of a segment
-            if len(self.segment_buffer) > FS * TS:
-                # If the envelope has dropped, we've reached the end
-                if np.max(envelope[-self.chunk_size:]) < self.threshold * np.max(envelope):
-                    # Decode the segment
-                    char = char_decoder(self.segment_buffer)
-                    self.message += char
-                    print(f"Decoded: '{char}' | Message so far: '{self.message}'")
-                    
-                    # Reset for next segment
-                    self.in_segment = False
-                    self.segment_buffer = np.array([])
+            # If the envelope has dropped, we've reached the end
+            if np.max(envelope[-self.chunk_size:]) < self.threshold * np.max(envelope):
+                # Decode the segment
+                char = char_decoder(self.segment_buffer)
+                self.message += char
+                print(f"Decoded: '{char}' | Message so far: '{self.message}'")
+                
+                # Reset for next segment
+                self.in_segment = False
+                self.segment_buffer = np.array([])
 
 
 def main():

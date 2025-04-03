@@ -62,7 +62,7 @@ def text_encoder(message: str, Gaussian_noise=False):
 
     # Print the time needed for encoding
     end = time.time()
-    print(f"Time needed for encoding: {end - start} seconds")
+    print(f"Time used for encoding: {end - start} seconds")
 
     return signal
 
@@ -193,5 +193,5 @@ def text_decoder(signal: np.array, if_plot=False):
 if __name__ == "__main__":
     signal = text_encoder("Hello, I want to join Paradromics!", Gaussian_noise=True)
     c = char_decoder(signal[0 : int(FS * 0.1)])
-    text = text_decoder(signal, if_plot=True)
+    text = text_decoder(signal, if_plot=False)
     print(text)
