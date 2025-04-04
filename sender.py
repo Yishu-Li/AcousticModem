@@ -47,7 +47,7 @@ class RealTimeSender:
 def main():
     """
     The main function of the sender. The user input a message
-    to the sneder, and then the sender will encode the message
+    to the sender, and then the sender will encode the message
     to an acoustic signal and play it.
     """
 

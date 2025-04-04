@@ -1,7 +1,8 @@
 import numpy as np
 import scipy.fft as fft
-from scipy.signal import hilbert, medfilt
-from utils import bandpass_filter, plot_psd
+from scipy.signal import welch
+from utils import bandpass_filter, plot_fft, base_envelop, calc_fft
+import matplotlib.pyplot as plt
 import time
 
 
@@ -9,8 +10,9 @@ import time
 FS = 44100  # Standard sampling rate
 TS = 0.2  # Duration of each signal segment
 T_SILENCE = 0.1  # Duration of the silence between segments
-BASE_FREQUENCY = 1000  # Base frequency for encoding the bits
-f_list = [3000, 4000, 5000, 6000, 7000, 8000, 9000]  # Frequencies to encode the bits
+BASE_FREQUENCY = 3000  # Base frequency for encoding the bits
+f_list = [7000, 8000, 9000, 10000, 11000, 12000, 13000]  # Frequencies to encode the bits
+F_MAX = f_list[-1] + 1000  # Maximum frequency
 
 
 def text_encoder(message: str, Gaussian_noise=False):
@@ -82,11 +84,11 @@ def char_decoder(seg: np.array, if_plot=False):
     # Band-pass the signal to find our ROI
     seg = bandpass_filter(seg, f_list[0] - 1000, f_list[-1] + 1000, FS)
     if if_plot:
-        plot_psd(seg, FS, fmax=10000)
+        plot_fft(seg, FS, fmax=F_MAX)
 
     # Convert the signal segment to the frequency domain
-    seg_f = np.abs(fft.rfft(seg))
-    freqs = fft.rfftfreq(len(seg), 1 / FS)
+    freqs, seg_f = welch(seg, FS)
+    # freqs, seg_f = welch(seg, FS)
 
     # Calculate the baseline to reduce noise
     mean = np.mean(seg_f)
@@ -99,7 +101,7 @@ def char_decoder(seg: np.array, if_plot=False):
     binary = list("0000000")
     for i, f in enumerate(f_list):
         # Test f and it's surrounding frequencies
-        band = np.arange(f - 50, f + 50)
+        band = np.arange(f - 100, f + 100)
         if any(freq in significant for freq in band):
             binary[i] = "1"
     binary = "".join(binary)
@@ -108,7 +110,7 @@ def char_decoder(seg: np.array, if_plot=False):
     return decoded_char
 
 
-def onset_detector_offline(signal: np.array, threshold=0.5, smooth_kernel=0.5):
+def onset_detector_offline(signal: np.array, threshold=0.5, smooth_coeff=0.5, plot_envelop=False):
     """
     This function detects the onsets of the signal segments based on the
     base frequency component in the segments and returns the segment. It
@@ -122,22 +124,17 @@ def onset_detector_offline(signal: np.array, threshold=0.5, smooth_kernel=0.5):
         signal (np.array): The acoustical signal that will be segmented.
         threshold (float): The threshold for the onset detection, a fraction
             of the maximum amplitude of the smoothed envelope.
-        smooth_kernel (float): The kernel size for smoothing the envelope,
+        smooth_coeff (float): The kernel size for smoothing the envelope,
             the number between 0 and 1 indicates the fraction of T_SILENCE.
+        plot_envelop (bool): A flag that indicates whether to plot the
+            envelope or not.
     Outputs:
         segments (list of np.array): A list of the detected segments.
     """
 
-    # Band-pass the signal to get the base frequency component and get envelope
-    base_signal = bandpass_filter(
-        signal, BASE_FREQUENCY - 100, BASE_FREQUENCY + 100, FS
-    )
-    analytic = hilbert(base_signal)
-    amplitude = np.abs(analytic)
-    smooth_kernel = int(smooth_kernel * FS * T_SILENCE)
-    if smooth_kernel % 2 == 0:
-        smooth_kernel += 1  # Make sure the kernel size is odd
-    envelope = medfilt(amplitude, smooth_kernel)
+    # Get envelope
+    smooth_kernel = int(smooth_coeff * FS * T_SILENCE)
+    envelope = base_envelop(signal, fb=BASE_FREQUENCY, fs=FS, smooth_kernel=smooth_kernel)        
 
     # Double the envelope and find the onsets
     # HACK: This is a simple thresholding method that works for this case
@@ -148,24 +145,39 @@ def onset_detector_offline(signal: np.array, threshold=0.5, smooth_kernel=0.5):
     onsets = np.where(diff == 1)[0]
     offsets = np.where(diff == -1)[0]
 
-    if len(onsets) != len(offsets):
-        print("WARNING: Onsets and offsets do not match!")
+    if plot_envelop:
+        plt.figure(figsize=(20, 5))
+        plt.subplot(2, 1, 1)
+        plt.plot(envelope)
+        plt.title("Envelope")
+        plt.ylabel("Amplitude")
 
-        # Delete the unmatched onsets and offsets
-        if onsets[0] > offsets[0]:
-            onsets = onsets[1:]
-        if onsets[-1] > offsets[-1]:
-            offsets = offsets[:-1]
+        plt.subplot(2, 1, 2)
+        plt.plot(diff)
+        plt.xlabel("Time [samples]")
+        plt.ylabel("Binary Signal Diff")
+        plt.tight_layout()
+        plt.show()
+
+    # Delete the unmatched onsets and offsets
+    if onsets[0] > offsets[0]:
+        pad = int(np.maximum(0, offsets[0] - TS * FS))
+        onsets = np.insert(onsets, 0, pad)
+        print(f"Padded index {pad} to the first onset")
+    if onsets[-1] > offsets[-1]:
+        onsets = onsets[:-1]
 
     # Get the segments
     segments = []
     for onset, offset in zip(onsets, offsets):
         segments.append(signal[onset:offset])
 
+    print(f"Number of segments detected: {len(segments)}")
+
     return segments
 
 
-def text_decoder(signal: np.array, if_plot=False):
+def text_decoder(signal: np.array, if_plot=False, plot_envelop=False):
     """
     This function decodes an acoustical signal into a text message based
     on the frequency encoding. The decoding process is done by decoding each
@@ -179,7 +191,7 @@ def text_decoder(signal: np.array, if_plot=False):
     """
 
     # Split the signal into segments
-    segments = onset_detector_offline(signal)
+    segments = onset_detector_offline(signal, plot_envelop=plot_envelop)
 
     # Decode each segment
     decoded = ""
@@ -193,5 +205,5 @@ def text_decoder(signal: np.array, if_plot=False):
 if __name__ == "__main__":
     signal = text_encoder("Hello, I want to join Paradromics!", Gaussian_noise=True)
     c = char_decoder(signal[0 : int(FS * 0.1)])
-    text = text_decoder(signal, if_plot=False)
+    text = text_decoder(signal, if_plot=False, plot_envelop=True)
     print(text)
