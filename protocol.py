@@ -105,6 +105,7 @@ def char_decoder(seg: np.array, if_plot=False):
         if any(freq in significant for freq in band):
             binary[i] = "1"
     binary = "".join(binary)
+    print(f"Binary: {binary}")
     decoded_char = chr(int(binary, 2))
 
     return decoded_char

@@ -72,7 +72,12 @@ class RealTimeListener:
         time = np.arange(len(envelope)) / FS
 
         self.envelop_line.set_data(time, envelope)
-        self.envelop_plot.axhline(self.env_ref, color='red', linestyle='--', label='Env Ref')
+        
+        # Clear previous line first to avoid cluttering
+        if hasattr(self, '_env_line') and self._env_line:
+            self._env_line.remove()
+        self._env_line = self.envelop_plot.axhline(self.env_ref, color='red', linestyle='--', label='Env Ref')
+        
         self.envelop_plot.relim()
         self.envelop_plot.autoscale_view()
 
@@ -89,7 +94,12 @@ class RealTimeListener:
         
         # Update plot
         self.psd_line.set_data(freqs, F)
-        self.psd_plot.axhline(self.freq_ref, color='red', linestyle='--', label='Freq Ref')
+        
+        # Clear previous line first to avoid cluttering
+        if hasattr(self, '_freq_line') and self._freq_line:
+            self._freq_line.remove()
+        self._freq_line = self.psd_plot.axhline(self.freq_ref, color='red', linestyle='--', label='Freq Ref')
+        
         self.psd_plot.relim()
         self.psd_plot.autoscale_view()
         self.fig.canvas.draw_idle()
@@ -223,7 +233,8 @@ class RealTimeListener:
 
 
 def main():
-    listener = RealTimeListener(freq_thresh=10000, env_thresh=50)
+    listener = RealTimeListener(freq_thresh=5000, env_thresh=50
+                                )
     listener.start_listening()
 
 
