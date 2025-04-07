@@ -36,6 +36,7 @@ class AcousticModemGUI(QMainWindow):
         super().__init__()
         self.listener = None
         self.is_listening = False
+        self.message_history = ""  # Accumulate historical messages
         self.init_ui()
         
     def init_ui(self):
@@ -102,6 +103,19 @@ class AcousticModemGUI(QMainWindow):
         
         main_layout.addLayout(controls_layout)
         
+        # Decoded message and binary display
+        message_group = QGroupBox("Decoded Message")
+        message_layout = QVBoxLayout()
+        message_group.setLayout(message_layout)
+        
+        self.message_label = QLabel("Message: ")
+        self.binary_label = QLabel("Binary: ")
+        
+        message_layout.addWidget(self.message_label)
+        message_layout.addWidget(self.binary_label)
+        
+        main_layout.addWidget(message_group)  # Add to the main layout
+        
         self.setCentralWidget(main_widget)
         
     def update_freq_threshold(self):
@@ -129,14 +143,25 @@ class AcousticModemGUI(QMainWindow):
             self.stop_listener()
     
     def start_listener(self):
-        # Initialize listener with current slider values and checkbox state
+        # Initialize listener with current slider values, checkbox state, and UI update callback
         self.listener = GUIRealTimeListener(
             freq_thresh=self.freq_slider.value(),
             env_thresh=self.env_slider.value(),
             canvas=self.canvas,
-            multi_bands=self.multi_bands_checkbox.isChecked()
+            multi_bands=self.multi_bands_checkbox.isChecked(),
+            ui_callback=self.real_time_update
         )
         self.listener.start()
+    
+    def real_time_update(self, message, binary):
+        # Append new message to history (if non-empty) and update GUI in real time
+        if message:
+            if self.message_history:
+                self.message_history += " | " + message
+            else:
+                self.message_history = message
+        self.message_label.setText(f"Message: {self.message_history}")
+        self.binary_label.setText(f"Binary: {binary}")  # Always show latest binary
     
     def stop_listener(self):
         if self.listener:
@@ -149,11 +174,15 @@ class AcousticModemGUI(QMainWindow):
 
 class GUIRealTimeListener(RealTimeListener):
     """Modified RealTimeListener for GUI integration"""
-    def __init__(self, freq_thresh=3, env_thresh=50, canvas=None, multi_bands=False):
+    def __init__(self, freq_thresh=3, env_thresh=50, canvas=None, multi_bands=False, ui_callback=None):
         self.canvas = canvas
         self.running = True
         self.multi_bands = multi_bands
+        self.ui_callback = ui_callback
         super().__init__(freq_thresh, env_thresh, multi_bands=multi_bands)
+        # Initialize decoded outputs to avoid attribute errors
+        self.message = ""
+        self.binary = ""
     
     def init_ui(self):
         # Override to use the canvas instead of creating new figures
@@ -235,6 +264,10 @@ class GUIRealTimeListener(RealTimeListener):
             self.fig.canvas.draw_idle()
             plt.pause(0.01)
             self.fig.canvas.flush_events()
+
+        # Real-time update for decoded outputs:
+        if self.ui_callback:
+            self.ui_callback(self.message, self.binary)
     
     def get_envelope(self):
         from utils import base_envelop
