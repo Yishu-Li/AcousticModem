@@ -69,7 +69,7 @@ def text_encoder(message: str, Gaussian_noise=False):
     return signal
 
 
-def char_decoder(seg: np.array, if_plot=False, multi_bands=False):
+def char_decoder(seg: np.array, if_plot=False, freq_ref=None, multi_bands=False):
     """
     This function decodes a signal segment into a character based on the
     frequency encoding.
@@ -77,6 +77,11 @@ def char_decoder(seg: np.array, if_plot=False, multi_bands=False):
     Parameters:
     Inputs:
         seg (np.array): The signal segment that will be decoded.
+        if_plot (bool): A flag that indicates whether to plot the signal
+            segment envelop or not.
+        freq_ref (float): The reference frequency for the band-pass filter.
+        multi_bands (bool): Whether to use multi-band frequency detection or not.
+            The default value is False.
     Outputs:
         char (str): The character that the signal segment represents.
     """
@@ -99,10 +104,14 @@ def char_decoder(seg: np.array, if_plot=False, multi_bands=False):
     mean = np.mean(seg_f)
     std = np.std(seg_f)
 
-    # Find the value of the frequencies in f_list
-    # that are above the 2*std threshold
-    significant = freqs[seg_f > mean + 2 * std]
-    significant = significant.astype(int)
+    if freq_ref is None:
+        # Find the value of the frequencies in f_list
+        # that are above the 2*std threshold
+        significant = freqs[seg_f > mean + 2 * std]
+        significant = significant.astype(int)
+    else:
+        # Find the frequencies above freq_ref
+        significant = freqs[seg_f > freq_ref]
     binary = list("0000000")
     for i, f in enumerate(f_list):
         # Test f and it's surrounding frequencies
@@ -210,6 +219,5 @@ def text_decoder(signal: np.array, if_plot=False, plot_envelop=False, multi_band
 # For debug only
 if __name__ == "__main__":
     signal = text_encoder("Hello, I want to join Paradromics!", Gaussian_noise=True)
-    c = char_decoder(signal[0 : int(FS * 0.1)])
     text = text_decoder(signal, if_plot=True, plot_envelop=True, multi_bands=True)
     print(f"Decoded text: {text}")

@@ -227,7 +227,7 @@ class RealTimeListener:
             # If the envelope has dropped, we've reached the end
             if np.max(envelope[-self.chunk_size:]) < self.env_ref:
                 # Decode the segment
-                char = char_decoder(self.segment_buffer, multi_bands=self.multi_bands)
+                char = char_decoder(self.segment_buffer, freq_ref=self.freq_ref, multi_bands=self.multi_bands)
                 self.message += char
                 print(f"Decoded: '{char}' | Message so far: '{self.message}'")
                 

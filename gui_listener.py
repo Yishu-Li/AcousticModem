@@ -36,7 +36,6 @@ class AcousticModemGUI(QMainWindow):
         super().__init__()
         self.listener = None
         self.is_listening = False
-        self.message_history = ""  # Accumulate historical messages
         self.init_ui()
         
     def init_ui(self):
@@ -62,8 +61,8 @@ class AcousticModemGUI(QMainWindow):
         
         self.freq_slider = QSlider(Qt.Orientation.Horizontal)  # Updated to use the enum class
         self.freq_slider.setMinimum(1)
-        self.freq_slider.setMaximum(100000)
-        self.freq_slider.setValue(10000)
+        self.freq_slider.setMaximum(1000)
+        self.freq_slider.setValue(100)
         self.freq_slider.valueChanged.connect(self.update_freq_threshold)
         
         self.freq_label = QLabel(f"Threshold: {self.freq_slider.value()}")
@@ -149,19 +148,15 @@ class AcousticModemGUI(QMainWindow):
             env_thresh=self.env_slider.value(),
             canvas=self.canvas,
             multi_bands=self.multi_bands_checkbox.isChecked(),
-            ui_callback=self.real_time_update
+            ui_callback=self.real_time_update  # Added callback for decoded updates
         )
         self.listener.start()
     
-    def real_time_update(self, message, binary):
-        # Append new message to history (if non-empty) and update GUI in real time
-        if message:
-            if self.message_history:
-                self.message_history += " | " + message
-            else:
-                self.message_history = message
-        self.message_label.setText(f"Message: {self.message_history}")
-        self.binary_label.setText(f"Binary: {binary}")  # Always show latest binary
+    # New: Add callback to update decoded message and binary fields
+    def real_time_update(self, message):
+        self.message_label.setText(f"Message: {message}")
+        binary = format(ord(message[-1]), "07b") if message else "" 
+        self.binary_label.setText(f"Binary: {binary}")
     
     def stop_listener(self):
         if self.listener:
@@ -182,7 +177,6 @@ class GUIRealTimeListener(RealTimeListener):
         super().__init__(freq_thresh, env_thresh, multi_bands=multi_bands)
         # Initialize decoded outputs to avoid attribute errors
         self.message = ""
-        self.binary = ""
     
     def init_ui(self):
         # Override to use the canvas instead of creating new figures
@@ -267,7 +261,7 @@ class GUIRealTimeListener(RealTimeListener):
 
         # Real-time update for decoded outputs:
         if self.ui_callback:
-            self.ui_callback(self.message, self.binary)
+            self.ui_callback(self.message)
     
     def get_envelope(self):
         from utils import base_envelop
@@ -290,7 +284,7 @@ class GUIRealTimeListener(RealTimeListener):
             )
         freqs, F = welch(signal, FS)
         freqs = freqs[freqs<=F_MAX]
-        F = F - self.freq_mean
+        # F = F - self.freq_mean
         F = F[:len(freqs)]
         return freqs, F
     
