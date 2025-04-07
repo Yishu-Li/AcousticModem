@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.fft as fft
 from scipy.signal import welch
-from utils import bandpass_filter, plot_fft, base_envelop, calc_fft
+from utils import bandpass_filter, plot_psd, plot_fft, base_envelop, calc_fft, multi_bandpass_filter
 import matplotlib.pyplot as plt
 import time
 
@@ -69,7 +69,7 @@ def text_encoder(message: str, Gaussian_noise=False):
     return signal
 
 
-def char_decoder(seg: np.array, if_plot=False):
+def char_decoder(seg: np.array, if_plot=False, multi_bands=False):
     """
     This function decodes a signal segment into a character based on the
     frequency encoding.
@@ -81,14 +81,19 @@ def char_decoder(seg: np.array, if_plot=False):
         char (str): The character that the signal segment represents.
     """
 
-    # Band-pass the signal to find our ROI
-    seg = bandpass_filter(seg, f_list[0] - 1000, f_list[-1] + 1000, FS)
+    if not multi_bands:
+        # Band-pass the signal to find our ROI
+        seg = bandpass_filter(seg, f_list[0] - 1000, f_list[-1] + 1000, FS)
+    else:
+        # Try to band-pass all the frequencies in f_list
+        seg = multi_bandpass_filter(seg, bands=f_list, band_width=100, fs=FS)
+
     if if_plot:
-        plot_fft(seg, FS, fmax=F_MAX)
+        plot_psd(seg, FS, fmax=F_MAX)
 
     # Convert the signal segment to the frequency domain
+    # freqs, seg_f = calc_fft(seg, FS)
     freqs, seg_f = welch(seg, FS)
-    # freqs, seg_f = welch(seg, FS)
 
     # Calculate the baseline to reduce noise
     mean = np.mean(seg_f)
@@ -178,7 +183,7 @@ def onset_detector_offline(signal: np.array, threshold=0.5, smooth_coeff=0.5, pl
     return segments
 
 
-def text_decoder(signal: np.array, if_plot=False, plot_envelop=False):
+def text_decoder(signal: np.array, if_plot=False, plot_envelop=False, multi_bands=False):
     """
     This function decodes an acoustical signal into a text message based
     on the frequency encoding. The decoding process is done by decoding each
@@ -197,7 +202,7 @@ def text_decoder(signal: np.array, if_plot=False, plot_envelop=False):
     # Decode each segment
     decoded = ""
     for seg in segments:
-        decoded += char_decoder(seg, if_plot=if_plot)
+        decoded += char_decoder(seg, if_plot=if_plot, multi_bands=multi_bands)
 
     return decoded
 
@@ -206,5 +211,5 @@ def text_decoder(signal: np.array, if_plot=False, plot_envelop=False):
 if __name__ == "__main__":
     signal = text_encoder("Hello, I want to join Paradromics!", Gaussian_noise=True)
     c = char_decoder(signal[0 : int(FS * 0.1)])
-    text = text_decoder(signal, if_plot=False, plot_envelop=True)
-    print(text)
+    text = text_decoder(signal, if_plot=True, plot_envelop=True, multi_bands=True)
+    print(f"Decoded text: {text}")

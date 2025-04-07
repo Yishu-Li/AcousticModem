@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                            QHBoxLayout, QSlider, QLabel, QPushButton, QGroupBox)
+                            QHBoxLayout, QSlider, QLabel, QPushButton, QGroupBox, QCheckBox)
 from PyQt6.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -86,6 +86,11 @@ class AcousticModemGUI(QMainWindow):
         env_layout.addWidget(self.env_label)
         env_layout.addWidget(self.env_slider)
         
+        # Multi-bands checkbox
+        self.multi_bands_checkbox = QCheckBox("Use Multi-Bands")
+        self.multi_bands_checkbox.setChecked(False)  # Default to False
+        controls_layout.addWidget(self.multi_bands_checkbox)
+        
         # Start/Stop button
         self.start_stop_button = QPushButton("Start Listening")
         self.start_stop_button.clicked.connect(self.toggle_listening)
@@ -124,11 +129,12 @@ class AcousticModemGUI(QMainWindow):
             self.stop_listener()
     
     def start_listener(self):
-        # Initialize listener with current slider values
+        # Initialize listener with current slider values and checkbox state
         self.listener = GUIRealTimeListener(
             freq_thresh=self.freq_slider.value(),
             env_thresh=self.env_slider.value(),
-            canvas=self.canvas
+            canvas=self.canvas,
+            multi_bands=self.multi_bands_checkbox.isChecked()
         )
         self.listener.start()
     
@@ -143,10 +149,11 @@ class AcousticModemGUI(QMainWindow):
 
 class GUIRealTimeListener(RealTimeListener):
     """Modified RealTimeListener for GUI integration"""
-    def __init__(self, freq_thresh=3, env_thresh=50, canvas=None):
+    def __init__(self, freq_thresh=3, env_thresh=50, canvas=None, multi_bands=False):
         self.canvas = canvas
         self.running = True
-        super().__init__(freq_thresh, env_thresh)
+        self.multi_bands = multi_bands
+        super().__init__(freq_thresh, env_thresh, multi_bands=multi_bands)
     
     def init_ui(self):
         # Override to use the canvas instead of creating new figures
@@ -209,7 +216,7 @@ class GUIRealTimeListener(RealTimeListener):
         self.envelop_plot.autoscale_view()
             
         # Calculate and plot frequency domain
-        freqs, F = self.get_psd()
+        freqs, F = self.get_psd(self.multi_bands)
             
         self.psd_line.set_data(freqs, F)
                 
@@ -235,14 +242,19 @@ class GUIRealTimeListener(RealTimeListener):
             self.buffer, BASE_FREQUENCY, FS, smooth_kernel=self.smooth_kernel
         )
         
-    def get_psd(self):
-        from utils import bandpass_filter
+    def get_psd(self, multi_bands=False):
+        from utils import bandpass_filter, multi_bandpass_filter
         from scipy.signal import welch
         from protocol import f_list, F_MAX
             
-        signal = bandpass_filter(
-            self.buffer, f_list[0]-2000, f_list[-1]+2000, FS
-        )
+        if not multi_bands:
+            signal = bandpass_filter(
+                self.buffer, f_list[0]-2000, f_list[-1]+2000, FS
+            )
+        else:
+            signal = multi_bandpass_filter(
+                self.buffer, bands=f_list, band_width=100, fs=FS
+            )
         freqs, F = welch(signal, FS)
         freqs = freqs[freqs<=F_MAX]
         F = F - self.freq_mean

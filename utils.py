@@ -27,6 +27,49 @@ def bandpass_filter(signal, lowcut, highcut, fs, order=5):
     filtered = filtfilt(b, a, signal)
     return filtered
 
+
+def multi_bandpass_filter(signal, bands, band_width, fs, order=5):
+    """
+    Apply multiple bandpass filters to the signal and combine the results.
+
+    Parameters:
+    Inputs:
+        signal (numpy array): Input signal.
+        bands (list of tuples): List of (lowcut, highcut) frequency pairs.
+        band_width (float): Bandwidth of the filter.
+        fs (float): Sampling frequency of the signal.
+        order (int): Order of the Butterworth filter.
+    Outputs:
+        filtered (numpy array): Combined filtered signal.
+    """
+    filtered_signal = np.zeros_like(signal)
+    for band in bands:
+        lowcut = band - band_width / 2
+        highcut = band + band_width / 2
+        filtered_signal += bandpass_filter(signal, lowcut, highcut, fs, order)
+    return filtered_signal
+
+
+def notch_filter(signal, notch_freq, fs, quality_factor=30):
+    """
+    A notch filter to remove a specific frequency from the signal.
+
+    Parameters:
+    Inputs:
+        signal (numpy array): Input signal.
+        notch_freq (float): Frequency to be removed.
+        fs (float): Sampling frequency of the signal.
+        quality_factor (float): Quality factor of the notch filter.
+    Outputs:
+        filtered (numpy array): Filtered signal.
+    """
+    nyquist = 0.5 * fs
+    freq = notch_freq / nyquist
+    b, a = butter(2, [freq - freq / quality_factor, freq + freq / quality_factor], btype='bandstop')
+    filtered = filtfilt(b, a, signal)
+    return filtered
+
+
 def calc_fft(signal, fs, window=None, fmax=20000):
     """
     Calculates the Power Spectral Density (PSD) of a given signal.
@@ -87,6 +130,43 @@ def plot_fft(signal, fs, window=None, log=False, fmax=20000):
     plt.show()
 
 
+def plot_psd(signal, fs, window=None, log=False, fmax=10000):
+     """
+     Plots the Power Spectral Density (PSD) of a given signal.
+ 
+     Parameters:
+     Inputs:
+         signal (numpy array): Input signal.
+         fs (float): Sampling frequency of the signal.
+         window (list): Time window to be used for the PSD calculation, in seconds.
+         fmax (int): Maximum frequency to be plotted.
+     """
+     if window is not None:
+         signal = signal[int(window[0]*fs):int(window[1]*fs)]
+ 
+     f, Pxx = welch(signal, fs)
+ 
+     # Select the ROI
+     f = f[f<=fmax]
+     Pxx = Pxx[:len(f)]
+ 
+     # Calculate the mean and 2*std of the PSD
+     mean = np.mean(Pxx)
+     std = np.std(Pxx)
+ 
+     plt.figure(figsize=(20, 5))
+     if log:
+         plt.semilogy(f, Pxx)
+     else:
+         plt.plot(f, Pxx)
+     plt.axhline(mean, color='g', linestyle='--', label='Mean')
+     plt.axhline(mean + 2*std, color='r', linestyle='--', label='2*std')
+     plt.xlabel('Frequency [Hz]')
+     plt.ylabel('PSD')
+     plt.title('Power Spectral Density')
+     plt.show()
+
+     
 def base_envelop(signal, fb, fs, smooth_kernel=0.5):
     """
     This function calculates the base envelope of the signal.

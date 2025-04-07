@@ -15,16 +15,20 @@ class RealTimeListener:
     characters. The listener is designed to work with the sender.py script
     in real-time.
     """
-    def __init__(self, freq_thresh=3, env_thresh=50):
+    def __init__(self, freq_thresh=3, env_thresh=50, multi_bands=False):
         """
         Initialize the RealTimeListener class.
         Parameters:
         env_thresh (int): The threshold for envelope detection. Number of stds
             The default value is 50.
+        freq_thresh (int): The threshold for frequency detection. Number of stds
+        multi_bands (bool): Whether to use multi-band frequency detection or not.
+            The default value is False.
         """
         self.p = pyaudio.PyAudio()
         self.freq_thresh = freq_thresh
         self.env_thresh = env_thresh
+        self.multi_bands = multi_bands
         self.chunk_size = int(T_SILENCE * FS)
         self.buffer = np.array([])
         self.message = ""
@@ -223,7 +227,7 @@ class RealTimeListener:
             # If the envelope has dropped, we've reached the end
             if np.max(envelope[-self.chunk_size:]) < self.env_ref:
                 # Decode the segment
-                char = char_decoder(self.segment_buffer)
+                char = char_decoder(self.segment_buffer, multi_bands=self.multi_bands)
                 self.message += char
                 print(f"Decoded: '{char}' | Message so far: '{self.message}'")
                 
