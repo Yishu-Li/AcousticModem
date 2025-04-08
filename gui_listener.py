@@ -288,7 +288,10 @@ class GUIRealTimeListener(RealTimeListener):
                 range(1, len(f_list) + 1), self.freq_ref, color='red'
             )
 
-            self.bar_plot.set_ylim(0, np.maximum(max(F), max(self.freq_ref)) * 1.2)
+            y_max = np.maximum(np.nan_to_num(max(F)), np.nan_to_num(max(self.freq_ref))) * 1.2
+            if y_max is None or y_max == 0:
+                y_max = 1.0
+            self.bar_plot.set_ylim(0, y_max)
             self.bar_plot.autoscale_view()
             
         # Different draw method when using Qt canvas
