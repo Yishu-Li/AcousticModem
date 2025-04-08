@@ -13,8 +13,10 @@ class MplCanvas(FigureCanvas):
     """Canvas for embedding matplotlib into Qt"""
     def __init__(self, parent=None, width=10, height=10, dpi=100):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
-        self.envelop_plot = self.fig.add_subplot(211)
-        self.psd_plot = self.fig.add_subplot(212)
+        grid = self.fig.add_gridspec(2, 2)
+        self.envelop_plot = self.fig.add_subplot(grid[0, 0])
+        self.bar_plot = self.fig.add_subplot(grid[0, 1])
+        self.psd_plot = self.fig.add_subplot(grid[1, :])
         
         # Setup plots
         self.envelop_plot.set_title('Onset Detection')
@@ -26,6 +28,12 @@ class MplCanvas(FigureCanvas):
         self.psd_plot.set_xlabel('Frequency (Hz)')
         self.psd_plot.set_ylabel('Power/Frequency')
         self.psd_line, = self.psd_plot.plot([], [])
+        
+        self.bar_plot.set_title('Frequency Bar Plot')
+        self.bar_plot.set_xlabel('Frequency Bands')
+        self.bar_plot.set_ylabel('Amplitude')
+        self.bar_bars = None
+        self._bar_ref = None
         
         self.fig.tight_layout()
         
@@ -61,8 +69,8 @@ class AcousticModemGUI(QMainWindow):
         
         self.freq_slider = QSlider(Qt.Orientation.Horizontal)  # Updated to use the enum class
         self.freq_slider.setMinimum(1)
-        self.freq_slider.setMaximum(1000)
-        self.freq_slider.setValue(100)
+        self.freq_slider.setMaximum(100)
+        self.freq_slider.setValue(10)
         self.freq_slider.valueChanged.connect(self.update_freq_threshold)
         
         self.freq_label = QLabel(f"Threshold: {self.freq_slider.value()}")
@@ -183,8 +191,12 @@ class GUIRealTimeListener(RealTimeListener):
         if self.canvas:
             self.envelop_plot = self.canvas.envelop_plot
             self.psd_plot = self.canvas.psd_plot
+            self.bar_plot = self.canvas.bar_plot
+
             self.envelop_line = self.canvas.envelop_line
             self.psd_line = self.canvas.psd_line
+            self.bar_bars = self.canvas.bar_bars
+            self._bar_ref = self.canvas._bar_ref
             
             # Clear any existing threshold lines from previous runs
             self.clear_threshold_lines()
@@ -218,6 +230,11 @@ class GUIRealTimeListener(RealTimeListener):
         for line in self.psd_plot.get_lines():
             if line.get_linestyle() == '--':  # Identify threshold lines by linestyle
                 line.remove()
+
+        if self.bar_bars:
+            for bar in self.bar_bars:
+                bar.remove()
+            self.bar_bars = None
     
     def update_plots(self):
         # Update the PSD plot with current buffer data
@@ -242,14 +259,37 @@ class GUIRealTimeListener(RealTimeListener):
         freqs, F = self.get_psd(self.multi_bands)
             
         self.psd_line.set_data(freqs, F)
-                
-        # Remove previous threshold line and add a new one
-        if hasattr(self, '_freq_line') and self._freq_line:
-            self._freq_line.remove()
-        self._freq_line = self.psd_plot.axhline(self.freq_ref, color='red', linestyle='--', label='Freq Ref')
         
         self.psd_plot.relim()
         self.psd_plot.autoscale_view()
+        
+        # Add/update bar plot
+        from protocol import f_list
+        if self.bar_plot and self.bar_bars is None:
+            self.bar_plot.set_xlim(0, len(f_list) + 1)
+            self.bar_plot.set_xticks(range(1, len(f_list) + 1))
+            self.bar_plot.set_xticklabels([f"{f} Hz" for f in f_list], rotation=45)
+            self.bar_bars = self.bar_plot.bar(range(1, len(f_list) + 1), [0]*len(f_list))
+        
+        if self.bar_bars:
+            for i, bar in enumerate(self.bar_bars):
+                band = np.arange(f_list[i] - 100, f_list[i] + 100)
+                freq_roi = np.where((freqs >= band[0]) & (freqs <= band[-1]))[0]
+                F_roi = np.mean(F[freq_roi]) if len(freq_roi) else 0
+                bar.set_height(F_roi)
+                bar.set_color('red' if F_roi > self.freq_ref[i] else 'blue')
+            
+            # Remove all existing scatter objects from the plot
+            for coll in self.bar_plot.collections:
+                coll.remove()
+            self._bar_ref = None
+
+            self._bar_ref = self.bar_plot.scatter(
+                range(1, len(f_list) + 1), self.freq_ref, color='red'
+            )
+
+            self.bar_plot.set_ylim(0, np.maximum(max(F), max(self.freq_ref)) * 1.2)
+            self.bar_plot.autoscale_view()
             
         # Different draw method when using Qt canvas
         if self.canvas:
@@ -276,11 +316,11 @@ class GUIRealTimeListener(RealTimeListener):
             
         if not multi_bands:
             signal = bandpass_filter(
-                self.buffer, f_list[0]-2000, f_list[-1]+2000, FS
+                self.buffer, f_list[0]-1000, f_list[-1]+1000, FS
             )
         else:
             signal = multi_bandpass_filter(
-                self.buffer, bands=f_list, band_width=100, fs=FS
+                self.buffer, bands=f_list, band_width=200, fs=FS
             )
         freqs, F = welch(signal, FS)
         freqs = freqs[freqs<=F_MAX]

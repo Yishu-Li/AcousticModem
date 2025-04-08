@@ -10,8 +10,8 @@ import time
 FS = 44100  # Standard sampling rate
 TS = 0.2  # Duration of each signal segment
 T_SILENCE = 0.1  # Duration of the silence between segments
-BASE_FREQUENCY = 3000  # Base frequency for encoding the bits
-f_list = [7000, 8000, 9000, 10000, 11000, 12000, 13000]  # Frequencies to encode the bits
+BASE_FREQUENCY = 2000  # Base frequency for encoding the bits
+f_list = [4000, 6000, 8000, 10000, 12000, 140000, 16000]  # Frequencies to encode the bits
 F_MAX = f_list[-1] + 1000  # Maximum frequency
 
 
@@ -41,6 +41,9 @@ def text_encoder(message: str, Gaussian_noise=False):
     binary = [
         format(ord(char), "07b") for char in message
     ]  # Keep 7-digits to make sure the encoding is consistent
+
+    for i, c in enumerate(binary):
+        print(f"Encoding character {i}: {c}")
 
     # Create the signal
     signal = []
@@ -79,7 +82,7 @@ def char_decoder(seg: np.array, if_plot=False, freq_ref=None, multi_bands=False)
         seg (np.array): The signal segment that will be decoded.
         if_plot (bool): A flag that indicates whether to plot the signal
             segment envelop or not.
-        freq_ref (float): The reference frequency for the band-pass filter.
+        freq_ref (numpy array): The reference frequency for the decoding.
         multi_bands (bool): Whether to use multi-band frequency detection or not.
             The default value is False.
     Outputs:
@@ -91,7 +94,7 @@ def char_decoder(seg: np.array, if_plot=False, freq_ref=None, multi_bands=False)
         seg = bandpass_filter(seg, f_list[0] - 1000, f_list[-1] + 1000, FS)
     else:
         # Try to band-pass all the frequencies in f_list
-        seg = multi_bandpass_filter(seg, bands=f_list, band_width=100, fs=FS)
+        seg = multi_bandpass_filter(seg, bands=f_list, band_width=200, fs=FS)
 
     if if_plot:
         plot_psd(seg, FS, fmax=F_MAX)
@@ -100,25 +103,39 @@ def char_decoder(seg: np.array, if_plot=False, freq_ref=None, multi_bands=False)
     # freqs, seg_f = calc_fft(seg, FS)
     freqs, seg_f = welch(seg, FS)
 
-    # Calculate the baseline to reduce noise
-    mean = np.mean(seg_f)
-    std = np.std(seg_f)
+    # Average the power around the frequencies in f_list to a list
+    F_roi = []
+    for f in f_list:
+        # Find the frequencies around f
+        band = np.arange(f - 100, f + 100)
+        freq_roi = np.where((freqs >= band[0]) & (freqs <= band[-1]))[0]
+        # Get the average power in the band
+        F_roi.append(np.mean(seg_f[freq_roi]))
+    F_roi = np.array(F_roi)
+
+    # Create a bar plot of the frequencies in f_list and their average power
+    if if_plot:
+        plt.figure(figsize=(20, 5))
+        plt.bar(np.arange(len(f_list)), F_roi)
+        plt.xlabel("Frequency [Hz]")
+        plt.ylabel("Average Power")
+        plt.title("Average Power of Frequencies")
+        plt.show()
+
+
 
     if freq_ref is None:
         # Find the value of the frequencies in f_list
         # that are above the 2*std threshold
-        significant = freqs[seg_f > mean + 2 * std]
+        mean = np.mean(seg_f)
+        std = np.std(seg_f)
+
+        significant = F_roi > mean + 2 * std
         significant = significant.astype(int)
     else:
         # Find the frequencies above freq_ref
-        significant = freqs[seg_f > freq_ref]
-    binary = list("0000000")
-    for i, f in enumerate(f_list):
-        # Test f and it's surrounding frequencies
-        band = np.arange(f - 100, f + 100)
-        if any(freq in significant for freq in band):
-            binary[i] = "1"
-    binary = "".join(binary)
+        significant = F_roi > freq_ref
+    binary = ''.join(significant.astype(int).astype(str))
     print(f"Binary: {binary}")
     decoded_char = chr(int(binary, 2))
 
@@ -219,5 +236,5 @@ def text_decoder(signal: np.array, if_plot=False, plot_envelop=False, multi_band
 # For debug only
 if __name__ == "__main__":
     signal = text_encoder("Hello, I want to join Paradromics!", Gaussian_noise=True)
-    text = text_decoder(signal, if_plot=True, plot_envelop=True, multi_bands=True)
+    text = text_decoder(signal, if_plot=False, plot_envelop=True, multi_bands=True)
     print(f"Decoded text: {text}")
