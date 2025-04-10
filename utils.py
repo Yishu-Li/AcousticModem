@@ -182,7 +182,7 @@ def base_envelop(signal, fb, fs, smooth_kernel=0.5):
         env (numpy array): Envelope of the signal.
     """
     # Band-pass the signal to find our ROI
-    base_signal = bandpass_filter(signal, fb - 500, fb + 500, fs)
+    base_signal = bandpass_filter(signal, fb - 50, fb + 50, fs)
 
     # Calculate the envelope using Hilbert transform
     analytic = hilbert(base_signal)

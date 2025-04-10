@@ -1,6 +1,6 @@
 import pyaudio
 import numpy as np
-from protocol import char_decoder, FS, BASE_FREQUENCY, TS, T_SILENCE, F_MAX, f_list
+from protocol import char_decoder, FS, BASE_FREQUENCY, TS, T_SILENCE, F_MAX, f_list, BASE_FREQUENCY_SILENCE
 from utils import bandpass_filter, base_envelop, calc_fft, multi_bandpass_filter
 from scipy.signal import welch
 import time
@@ -293,9 +293,198 @@ class RealTimeListener:
                 self.segment_buffer = np.array([])
 
 
+
+
+
+class Listener:
+    """
+    This listener does not listen and decode in real-time. It takes the whole
+    signal after stop and decodes it.
+    """
+
+    def __init__(self, if_plot=False, plot_env=False, multi_bands=False):
+        self.p = pyaudio.PyAudio()
+        self.chunk_size = int(T_SILENCE * FS)
+        self.data = np.array([])
+        self.message = ""
+        self.if_plot = if_plot
+        self.plot_env = plot_env
+        self.multi_bands = multi_bands
+
+    def decode_message(self):
+        """Decode the entire buffer into a message"""
+        from protocol import text_decoder
+        # Decode the entire buffer
+        self.message = text_decoder(
+            self.data, if_plot=self.if_plot, plot_envelop=self.plot_env, multi_bands=self.multi_bands
+        )
+    
+    
+    def start_listening(self):
+        """Start the audio stream and begin processing audio data"""
+        self.stream = self.p.open(
+            format=pyaudio.paFloat32,
+            channels=1,
+            rate=FS,
+            input=True,
+            frames_per_buffer=self.chunk_size
+        )
+
+        print("Listening for acoustic signals... Press Ctrl+C to stop.")
+        self.stream.start_stream()
+        
+        try:
+            while self.stream.is_active():
+                # Read data from the stream
+                raw_data = self.stream.read(self.chunk_size)
+                audio_data = np.frombuffer(raw_data, dtype=np.float32)
+                self.data = np.append(self.data, audio_data)
+                
+        except KeyboardInterrupt:
+            print("\nStopping listener...")
+            print("Decoding message...")
+            # Decode the entire buffer
+            self.decode_message()
+
+            self.stream.stop_stream()
+            self.stream.close()
+            self.p.terminate()
+            print(f"Final decoded message: {self.message}")
+
+
+
+class ContinuousListener(Listener):
+    """
+    This listener listens and decodes based on listener, but it will listen
+    to the signal continuously, and output the message everytime it detects a
+    message.
+    """
+    def __init__(self, if_plot=False, plot_env=False, multi_bands=False, env_thresh=50):
+        super().__init__(if_plot, plot_env, multi_bands)
+        self.buffer = np.array([])
+        self.env_thresh = env_thresh
+        self.in_segment = False
+        self.smooth_kernel = int(0.5 * FS * T_SILENCE)
+        if self.smooth_kernel % 2 == 0:
+            self.smooth_kernel += 1  # Make sure kernel size is odd
+
+
+    def record_reference(self):
+        """Record a reference signal for envelope detection"""
+        print("Recording reference signal for envelope detection...")
+
+        # Open a separate stream for reference measurement
+        ref_stream = self.p.open(
+            format=pyaudio.paFloat32,
+            channels=1,
+            rate=FS,
+            input=True,
+            frames_per_buffer=self.chunk_size
+        )
+
+        # Record 1 second of data for baseline
+        baseline_buffer = np.array([])
+        for _ in range(int(FS // self.chunk_size)):
+            raw_data = ref_stream.read(self.chunk_size)
+            baseline_buffer = np.append(baseline_buffer, np.frombuffer(raw_data, dtype=np.float32))
+
+        ref_stream.close()
+
+        # Calculate the envelope baseline
+        baseline_envelope = base_envelop(
+            baseline_buffer, BASE_FREQUENCY, FS, smooth_kernel=self.smooth_kernel
+        )
+        env_mean = np.mean(baseline_envelope)
+        env_std = np.std(baseline_envelope)
+
+        self.env_ref = env_mean + self.env_thresh * env_std
+
+    def start_listening(self):
+        """Start the audio stream and begin processing audio data"""
+        self.record_reference()
+
+        self.stream = self.p.open(
+            format=pyaudio.paFloat32,
+            channels=1,
+            rate=FS,
+            input=True,
+            frames_per_buffer=self.chunk_size,
+            stream_callback=self.audio_callback
+        )
+
+        print("Listening for acoustic signals... Press Ctrl+C to stop.")
+        self.stream.start_stream()
+        
+        try:
+            while self.stream.is_active():
+                time.sleep(0.01)
+        except KeyboardInterrupt:
+            print("\nStopping listener...")
+            self.stream.stop_stream()
+            self.stream.close()
+            self.p.terminate()
+
+
+    def audio_callback(self, in_data, frame_count, time_info, status):
+        """Process incoming audio data"""
+        # Convert bytes to numpy array
+        audio_data = np.frombuffer(in_data, dtype=np.float32)
+        
+        # Add to buffer
+        self.buffer = np.append(self.buffer, audio_data)
+        
+        # Keep buffer at a reasonable size (3 segments worth of data)
+        max_buffer_size = int(FS * (TS + T_SILENCE) * 3)
+        if len(self.buffer) > max_buffer_size:
+            self.buffer = self.buffer[-max_buffer_size:]
+        
+        # Process buffer to detect segments
+        self.detect_and_decode_segments()
+        
+        return (in_data, pyaudio.paContinue)
+
+
+    def detect_and_decode_segments(self):
+        """Detect signal segments and decode them in real-time"""
+        if len(self.buffer) < FS * (TS + T_SILENCE):
+            return  # Not enough data yet
+            
+        # Band-pass filter to get base frequency component 
+        envelope = base_envelop(
+            self.buffer, BASE_FREQUENCY_SILENCE, FS, smooth_kernel=self.smooth_kernel
+        )
+        
+        # Check if we're in a segment or between segments
+        if not self.in_segment:
+            # Look for onset (start of segment)
+            if np.max(envelope[-self.chunk_size:]) > self.env_ref:
+                self.in_segment = True
+                self.data = np.array([])
+                print("Signal detected, recording...")
+        else:
+            # Add data to segment buffer
+            self.data = np.append(self.data, self.buffer[-self.chunk_size:])
+            
+            # If the envelope has dropped, we've reached the end
+            if np.max(envelope[-self.chunk_size:]) < self.env_ref:
+                # Decode the segment
+                self.decode_message()
+                print(f"Message decoded: '{self.message}'")
+                
+                # Reset for next segment
+                self.in_segment = False
+                self.data = np.array([])
+
+
+
+
 def main():
-    listener = RealTimeListener(freq_thresh=5000, env_thresh=50, multi_bands=True)
+    # listener = RealTimeListener(freq_thresh=5000, env_thresh=50, multi_bands=False)
+    # listener.start_listening()
+    listener = Listener(if_plot=True, plot_env=True, multi_bands=False)
     listener.start_listening()
+    # listener = ContinuousListener(if_plot=False, plot_env=False, multi_bands=False, env_thresh=100)
+    # listener.start_listening()
 
 
 if __name__ == "__main__":
