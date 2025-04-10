@@ -60,3 +60,7 @@ The main structure of this project:
 ## How To Run
 The easiest way:  
 In two separate terminals, run `python sender.py` and `python gui_listener.py`. Click the *Start Listening* button in the GUI and input the text in the sender terminal.
+
+
+## Trade off
+The main trade off between the speed and accuracy lays in the segment legth of each character. The default value of segment length is 0.2 seconds and there's a 0.1 seconds idle period between each segment. If the segment length is too short, both the envelope and frequency detection may fail. As we learn from the Fourier transform, the frequency domain resolution is $1/T$, where $T$ is the segment legth. So there's a trade off between the frequency resolution and communication speed.
