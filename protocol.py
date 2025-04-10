@@ -62,8 +62,8 @@ def text_encoder(message: str, Gaussian_noise=False):
 
         signal = np.concatenate((signal, seg))
 
-    # Add the silence frequency to the entire signal
-    signal += np.sin(2 * np.pi * BASE_FREQUENCY_SILENCE * np.arange(0, len(signal) / FS, 1 / FS))
+    # # Add the silence frequency to the entire signal
+    # signal += np.sin(2 * np.pi * BASE_FREQUENCY_SILENCE * np.arange(0, len(signal) / FS, 1 / FS))
 
     # Add Gaussian noise
     if Gaussian_noise:
